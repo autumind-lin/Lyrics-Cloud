@@ -18,6 +18,12 @@ const listFade = {
 
 const WordCloud = dynamic(() => import("@/components/WordCloud"), { ssr: false });
 
+type SelectOption = {
+  value: string;
+  label: string;
+  count?: number;
+};
+
 const highlightLine = (line: string, query: string) => {
   const trimmedQuery = query.trim();
   if (!trimmedQuery) return line;
@@ -66,6 +72,7 @@ const extractFocusedSnippets = (tracks: TrackRecord[], term: string, limit = 8) 
   if (!trimmed) return [];
   const seen = new Set<string>();
   const results: Array<{ line: string; title: string }> = [];
+  const perTrackCount = new Map<string, number>();
   for (const track of tracks) {
     const lines = track.lyrics.split("\n");
     for (const line of lines) {
@@ -74,11 +81,67 @@ const extractFocusedSnippets = (tracks: TrackRecord[], term: string, limit = 8) 
       if (!normalized) continue;
       if (!normalized.toLowerCase().includes(trimmed)) continue;
       if (seen.has(normalized)) continue;
+      const used = perTrackCount.get(track.id) ?? 0;
+      if (used >= 2) continue;
       seen.add(normalized);
       results.push({ line: normalized, title: track.title });
+      perTrackCount.set(track.id, used + 1);
     }
   }
   return results;
+};
+
+const DropdownSelect = ({
+  label,
+  value,
+  options,
+  open,
+  onToggle,
+  onSelect,
+}: {
+  label: string;
+  value: string;
+  options: SelectOption[];
+  open: boolean;
+  onToggle: () => void;
+  onSelect: (value: string) => void;
+}) => {
+  const current = options.find((item) => item.value === value) ?? options[0];
+  return (
+    <div className="relative min-w-[160px]">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between gap-3 rounded-full border border-[var(--panel-border)] bg-[var(--panel-bg)] px-4 py-2 text-sm text-[var(--foreground)]"
+      >
+        <span className="truncate">{current?.label ?? value}</span>
+        <span className="text-[10px] text-[var(--muted)]">⌄</span>
+      </button>
+      {open ? (
+        <div className="absolute left-0 top-[calc(100%+6px)] z-40 w-full overflow-hidden rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-bg-strong)] shadow-[var(--panel-shadow-strong)] backdrop-blur">
+          <div className="max-h-64 overflow-y-auto py-2">
+            {options.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => onSelect(option.value)}
+                className={`flex w-full items-center justify-between gap-3 px-4 py-2 text-left text-sm transition ${
+                  option.value === value
+                    ? "bg-[var(--accent)]/10 text-[var(--accent)]"
+                    : "text-[var(--foreground)] hover:bg-[var(--accent)]/5"
+                }`}
+              >
+                <span className="truncate">{option.label}</span>
+                {option.count !== undefined ? (
+                  <span className="text-[10px] text-[var(--muted)]">{option.count}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 };
 
 export default function Home() {
@@ -86,7 +149,7 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [albumFilter, setAlbumFilter] = useState("全部专辑");
   const [lyricistFilter, setLyricistFilter] = useState("全部词作者");
-  const [yearFilter, setYearFilter] = useState("");
+  const [yearFilter, setYearFilter] = useState("全部年份");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -95,12 +158,31 @@ export default function Home() {
   const [activeWord, setActiveWord] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [useBottomDrawer, setUseBottomDrawer] = useState(false);
+  const [showSingles, setShowSingles] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const [openFilter, setOpenFilter] = useState<"album" | "lyricist" | "year" | null>(null);
+  const [theme, setTheme] = useState<"warm" | "ink" | "silver" | "bone">("warm");
+  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const filterRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     db.tracks.toArray().then((stored) => {
       setTracks(stored);
     });
+  }, []);
+
+  useEffect(() => {
+    const handleClick = (event: MouseEvent) => {
+      if (!filterRef.current) return;
+      if (!filterRef.current.contains(event.target as Node)) {
+        setOpenFilter(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+    };
   }, []);
 
   useEffect(() => {
@@ -119,14 +201,66 @@ export default function Home() {
 
   const searchIndex = useMemo(() => buildSearchIndex(tracks), [tracks]);
 
-  const albums = useMemo(() => {
-    const set = new Set(tracks.map((track) => track.album));
-    return ["全部专辑", ...Array.from(set).sort()];
+  const albums = useMemo<SelectOption[]>(() => {
+    const counts = new Map<string, number>();
+    tracks.forEach((track) => {
+      counts.set(track.album, (counts.get(track.album) ?? 0) + 1);
+    });
+    const items = Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    const maxNameLen = Math.max(0, ...items.map(([name]) => name.length));
+    const maxCountLen = Math.max(1, ...items.map(([, count]) => String(count).length));
+    return [
+      { value: "全部专辑", label: "全部专辑" },
+      ...items.map(([name, count]) => {
+        return {
+          value: name,
+          label: name,
+          count,
+        };
+      }),
+    ];
   }, [tracks]);
 
-  const lyricists = useMemo(() => {
-    const set = new Set(tracks.flatMap((track) => track.lyricists));
-    return ["全部词作者", ...Array.from(set).sort()];
+  const lyricists = useMemo<SelectOption[]>(() => {
+    const counts = new Map<string, number>();
+    tracks.forEach((track) => {
+      track.lyricists.forEach((name) => {
+        counts.set(name, (counts.get(name) ?? 0) + 1);
+      });
+    });
+    const items = Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    const maxNameLen = Math.max(0, ...items.map(([name]) => name.length));
+    const maxCountLen = Math.max(1, ...items.map(([, count]) => String(count).length));
+    return [
+      { value: "全部词作者", label: "全部词作者" },
+      ...items.map(([name, count]) => {
+        return {
+          value: name,
+          label: name,
+          count,
+        };
+      }),
+    ];
+  }, [tracks]);
+
+  const years = useMemo<SelectOption[]>(() => {
+    const counts = new Map<string, number>();
+    tracks.forEach((track) => {
+      counts.set(track.yearText, (counts.get(track.yearText) ?? 0) + 1);
+    });
+    const items = Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    const maxNameLen = Math.max(0, ...items.map(([name]) => name.length));
+    const maxCountLen = Math.max(1, ...items.map(([, count]) => String(count).length));
+    return [
+      { value: "全部年份", label: "全部年份" },
+      ...items.map(([name, count]) => {
+        return {
+          value: name,
+          label: name,
+          count,
+        };
+      }),
+    ];
   }, [tracks]);
 
   const filteredTracks = useMemo(() => {
@@ -137,8 +271,8 @@ export default function Home() {
     if (lyricistFilter !== "全部词作者") {
       result = result.filter((track) => track.lyricists.includes(lyricistFilter));
     }
-    if (yearFilter.trim()) {
-      result = result.filter((track) => track.yearText.includes(yearFilter.trim()));
+    if (yearFilter !== "全部年份") {
+      result = result.filter((track) => track.yearText === yearFilter);
     }
     return result.sort((a, b) => a.title.localeCompare(b.title, "zh-Hans-CN"));
   }, [albumFilter, lyricistFilter, yearFilter, query, searchIndex]);
@@ -151,20 +285,46 @@ export default function Home() {
     if (lyricistFilter !== "全部词作者") {
       result = result.filter((track) => track.lyricists.includes(lyricistFilter));
     }
-    if (yearFilter.trim()) {
-      result = result.filter((track) => track.yearText.includes(yearFilter.trim()));
+    if (yearFilter !== "全部年份") {
+      result = result.filter((track) => track.yearText === yearFilter);
     }
     return result;
   }, [albumFilter, lyricistFilter, yearFilter, tracks]);
 
   const tokens = useMemo(() => {
-    const computed = buildBigramStats(filteredTracksForStats, 120);
+    const computed = buildBigramStats(filteredTracksForStats, 120, { includeSingle: showSingles });
     if (computed.length > 0) return computed;
     if (tracks.length > 0) {
-      return buildBigramStats(tracks, 120);
+      return buildBigramStats(tracks, 120, { includeSingle: showSingles });
     }
     return computed;
-  }, [filteredTracksForStats, tracks]);
+  }, [filteredTracksForStats, tracks, showSingles]);
+
+  const displayTokens = useMemo(() => {
+    const trimmed = query.trim();
+    if (!trimmed) return tokens;
+    if (/[A-Za-z]/.test(trimmed)) return tokens;
+    const exists = tokens.some((item) => item.token === trimmed);
+    if (exists) return tokens;
+    const maxCount = tokens.reduce((max, item) => Math.max(max, item.count), 1);
+    return [{ token: trimmed, count: Math.max(2, Math.round(maxCount * 0.8)) }, ...tokens];
+  }, [tokens, query]);
+
+  const topTokens = useMemo(() => tokens.slice(0, 15), [tokens]);
+  const maxTokenCount = useMemo(
+    () => topTokens.reduce((max, token) => Math.max(max, token.count), 1),
+    [topTokens]
+  );
+  const importedFiles = useMemo(() => {
+    const counts = new Map<string, number>();
+    tracks.forEach((track) => {
+      if (!track.sourceFile) return;
+      counts.set(track.sourceFile, (counts.get(track.sourceFile) ?? 0) + 1);
+    });
+    return Array.from(counts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [tracks]);
 
 
   const handleImport = async (file?: File | null) => {
@@ -244,6 +404,10 @@ export default function Home() {
           return;
         }
         normalized = normalizeLyricsPackage(parsed);
+        normalized.tracks = normalized.tracks.map((track) => ({
+          ...track,
+          sourceFile: file.name,
+        }));
         if (process.env.NODE_ENV !== "production") {
           console.log(normalized.tracks.map((track) => track.title));
         }
@@ -274,6 +438,92 @@ export default function Home() {
     }
   };
 
+  const handleImportFiles = async (files?: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setLoading(true);
+    setStatus(null);
+    let totalImported = 0;
+    for (const file of Array.from(files)) {
+      try {
+        const extension = file.name.split(".").pop()?.toLowerCase();
+        let normalized;
+        if (extension === "json") {
+          const text = await file.text();
+          const parsed = JSON.parse(text);
+          normalized = normalizeLyricsPackage(parsed);
+        } else if (extension === "txt") {
+          const text = await file.text();
+          const parsed = parseTextToPackage(text);
+          parsed.tracks = parsed.tracks.filter(
+            (track) => track.lyrics && track.lyrics.trim().length > 0
+          );
+          const seen = new Set<string>();
+          parsed.tracks = parsed.tracks.filter((track) => {
+            const key = `${parsed.artist}__${track.title}__${track.year ?? ""}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+          if (parsed.tracks.length === 0) {
+            continue;
+          }
+          normalized = normalizeLyricsPackage(parsed);
+        } else if (extension === "docx") {
+          const arrayBuffer = await file.arrayBuffer();
+          const mammoth = await import("mammoth");
+          const htmlResult = await mammoth.convertToHtml({ arrayBuffer });
+          let docxText = htmlResult.value || "";
+          if (docxText) {
+            docxText = docxText
+              .replace(/<\s*br\s*\/?>/gi, "\n")
+              .replace(/<\/p>/gi, "\n")
+              .replace(/<[^>]+>/g, "")
+              .replace(/&lt;/g, "<")
+              .replace(/&gt;/g, ">")
+              .replace(/&amp;/g, "&")
+              .replace(/&quot;/g, '"')
+              .replace(/&#39;/g, "'");
+          }
+          const parsed = parseTextToPackage(docxText);
+          parsed.tracks = parsed.tracks.filter(
+            (track) => track.lyrics && track.lyrics.trim().length > 0
+          );
+          const seen = new Set<string>();
+          parsed.tracks = parsed.tracks.filter((track) => {
+            const key = `${parsed.artist}__${track.title}__${track.year ?? ""}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+          if (parsed.tracks.length === 0) {
+            continue;
+          }
+          normalized = normalizeLyricsPackage(parsed);
+          normalized.tracks = normalized.tracks.map((track) => ({
+            ...track,
+            sourceFile: file.name,
+          }));
+        } else {
+          continue;
+        }
+        if (!normalized) continue;
+        await db.transaction("rw", db.tracks, async () => {
+          await db.tracks.bulkPut(normalized.tracks);
+        });
+        totalImported += normalized.tracks.length;
+      } catch (error) {
+        console.error(error);
+      }
+    }
+    const updated = await db.tracks.toArray();
+    setTracks(updated);
+    setStatus(totalImported ? `解析并导入 ${totalImported} 首歌曲` : "未导入任何歌曲");
+    setLoading(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const handleClear = async () => {
     await db.tracks.clear();
     setTracks([]);
@@ -281,19 +531,44 @@ export default function Home() {
     setStatus("已清空本地数据");
   };
 
+  const handleRemoveFile = async (fileName: string) => {
+    const toDelete: string[] = [];
+    await db.tracks.filter((track) => track.sourceFile === fileName).each((track) => {
+      toDelete.push(track.id);
+    });
+    if (toDelete.length) {
+      await db.tracks.bulkDelete(toDelete);
+    }
+    const updated = await db.tracks.toArray();
+    setTracks(updated);
+    setStatus(`已删除 ${fileName}`);
+  };
+
   return (
-    <div className="relative h-screen overflow-hidden bg-[var(--surface)]">
+    <div
+      className={`relative h-screen overflow-hidden bg-[var(--surface)] app-shell ${
+        theme === "ink"
+          ? "theme-ink"
+          : theme === "silver"
+          ? "theme-silver"
+          : theme === "bone"
+          ? "theme-bone"
+          : "theme-warm"
+      }`}
+    >
       <div className="absolute inset-0">
-        {tokens.length === 0 ? (
+        <div className="absolute inset-0 z-0">
+          {displayTokens.length === 0 ? (
           <div className="flex h-full items-center justify-center text-sm text-[var(--muted)]">
             导入歌词后生成词频云。
           </div>
         ) : (
           <WordCloud
-            words={tokens.map((item) => ({ text: item.token, value: item.count }))}
+            words={displayTokens.map((item) => ({ text: item.token, value: item.count }))}
             maxWords={120}
+            showAll={showAll}
             selectedWord={activeWord ?? undefined}
-            snippets={activeWord ? extractFocusedSnippets(filteredTracksForStats, activeWord, 6) : []}
+            snippets={activeWord ? extractFocusedSnippets(filteredTracksForStats, activeWord, 15) : []}
             onSelect={(token) => {
               setActiveWord((prev) => (prev === token ? null : token));
               setQuery((prev) => (prev === token ? "" : token));
@@ -304,20 +579,66 @@ export default function Home() {
             }}
           />
         )}
-        <div className="pointer-events-none absolute left-6 top-6 flex items-center gap-2 text-[var(--accent)]">
+        </div>
+        <div className="absolute left-6 top-6 z-40 flex items-center gap-3 text-[var(--accent)] pointer-events-auto">
           <Music2 className="h-4 w-4" />
           <span className="text-xs uppercase tracking-[0.3em]">Lyrics Pulse</span>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setThemeMenuOpen((prev) => !prev)}
+              className="rounded-full border border-[var(--accent)]/30 px-2 py-0.5 text-[10px] text-[var(--accent)]/80"
+            >
+              色系
+            </button>
+            <AnimatePresence>
+              {themeMenuOpen ? (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.96, x: -6 }}
+                animate={{ opacity: 1, scale: 1, x: 0 }}
+                exit={{ opacity: 0, scale: 0.96, x: -6 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
+                className="absolute left-full top-1/2 z-50 ml-2 inline-flex -translate-y-1/2 items-center gap-1 overflow-hidden rounded-full border border-[var(--panel-border)] bg-[var(--panel-bg-strong)] shadow-[var(--panel-shadow-strong)] backdrop-blur"
+              >
+                {(
+                  [
+                    { value: "warm", label: "暖" },
+                    { value: "ink", label: "墨绿" },
+                    { value: "silver", label: "银青" },
+                    { value: "bone", label: "骨蓝" },
+                  ] as const
+                ).map((item) => (
+                  <button
+                    key={item.value}
+                    type="button"
+                    onClick={() => {
+                      setTheme(item.value);
+                      setThemeMenuOpen(false);
+                    }}
+                    className={`whitespace-nowrap px-3 py-2 text-[10px] ${
+                      theme === item.value
+                        ? "bg-[var(--accent)]/10 text-[var(--accent)] rounded-full"
+                        : "text-[var(--foreground)] hover:bg-[var(--accent)]/5 rounded-full"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </motion.div>
+            ) : null}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
 
       <aside
-        className={`fixed z-40 ${useBottomDrawer ? "bottom-4 right-4" : "right-0 top-1/2 -translate-y-1/2"}`}
+        className={`fixed z-40 ${useBottomDrawer ? "bottom-4 right-3" : "right-0 top-3"}`}
       >
         <div className={`${useBottomDrawer ? "flex flex-row" : "flex flex-col"} gap-2`}>
           <button
             type="button"
             onClick={() => setPanelOpen(true)}
-            className={`border border-white/40 bg-white/65 px-3 py-2 text-[11px] font-semibold tracking-[0.35em] text-[var(--accent)] shadow-[0_12px_26px_-12px_rgba(60,42,30,0.35)] backdrop-blur-md ${
+            className={`border border-[var(--panel-border)] bg-[var(--panel-bg)] px-3 py-2 text-[10px] font-semibold tracking-[0.35em] text-[var(--accent)]/80 shadow-[var(--panel-shadow)] backdrop-blur ${
               useBottomDrawer ? "rounded-full" : "rounded-l-full"
             }`}
           >
@@ -326,7 +647,7 @@ export default function Home() {
           <button
             type="button"
             onClick={() => setListOpen(true)}
-            className={`border border-white/40 bg-white/65 px-3 py-2 text-[11px] font-semibold tracking-[0.35em] text-[var(--accent)] shadow-[0_12px_26px_-12px_rgba(60,42,30,0.35)] backdrop-blur-md ${
+            className={`border border-[var(--panel-border)] bg-[var(--panel-bg)] px-3 py-2 text-[10px] font-semibold tracking-[0.35em] text-[var(--accent)]/80 shadow-[var(--panel-shadow)] backdrop-blur ${
               useBottomDrawer ? "rounded-full" : "rounded-l-full"
             }`}
           >
@@ -351,7 +672,7 @@ export default function Home() {
               animate={useBottomDrawer ? { y: 0 } : { x: 0 }}
               exit={useBottomDrawer ? { y: 260 } : { x: 260 }}
               transition={{ type: "spring", stiffness: 180, damping: 22 }}
-              className={`overflow-hidden bg-white/85 shadow-[0_24px_50px_-20px_rgba(60,42,30,0.45)] ${
+              className={`overflow-hidden bg-transparent shadow-[var(--panel-shadow-strong)] panel-text-contrast ${
                 useBottomDrawer
                   ? "h-[75vh] w-full max-w-[680px] rounded-t-3xl"
                   : "h-full w-full max-w-[360px] rounded-l-3xl"
@@ -372,30 +693,19 @@ export default function Home() {
                 </button>
               </div>
               <div
-                className={`overflow-y-auto px-6 py-5 text-xs text-[var(--muted)] ${
-                  useBottomDrawer ? "h-[calc(75vh-72px)]" : "h-[calc(100vh-72px)]"
-                }`}
-              >
-                <div className="flex items-center gap-2 rounded-full border border-[var(--accent)]/20 bg-white/70 px-3 py-2">
-                  <Search className="h-3 w-3 text-[var(--accent)]" />
-                  <input
-                    value={query}
-                    onChange={(event) => {
-                      setQuery(event.target.value);
-                      setActiveWord(event.target.value.trim() ? event.target.value : null);
-                    }}
-                    placeholder="搜索关键词..."
-                    className="w-full bg-transparent text-xs text-[var(--foreground)] outline-none placeholder:text-[var(--muted)]"
-                  />
-                </div>
+              className={`overflow-y-auto px-6 py-5 text-xs text-[var(--muted)] ${
+                useBottomDrawer ? "h-[calc(75vh-72px)]" : "h-[calc(100vh-72px)]"
+              }`}
+            >
                 <div className="mt-4 flex flex-col gap-2">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".json,.txt,.docx,application/json,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    className="hidden"
-                    onChange={(event) => handleImport(event.target.files?.[0])}
-                  />
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".json,.txt,.docx,application/json,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              className="hidden"
+              onChange={(event) => handleImportFiles(event.target.files)}
+            />
                   <button
                     className="flex items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white transition hover:-translate-y-0.5 hover:shadow-lg"
                     onClick={() => fileInputRef.current?.click()}
@@ -405,7 +715,7 @@ export default function Home() {
                     导入歌词
                   </button>
                   <button
-                    className="flex items-center justify-center gap-2 rounded-full border border-[var(--accent)]/40 px-3 py-2 text-xs font-semibold text-[var(--accent)] transition hover:bg-[var(--accent)]/10"
+                    className="flex items-center justify-center gap-2 rounded-full border border-[var(--panel-border)] px-3 py-2 text-xs font-semibold text-[var(--accent)] transition hover:bg-[var(--accent)]/10"
                     onClick={handleClear}
                     disabled={!tracks.length}
                   >
@@ -417,8 +727,82 @@ export default function Home() {
                   </div>
                 </div>
                 {status && <p className="mt-3 text-xs text-[var(--accent)]">{status}</p>}
+                <div className="mt-4 flex items-center gap-2">
+                  <span className="text-[10px] uppercase tracking-[0.3em] text-[var(--accent)]/80">
+                    高频词
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowAll((prev) => !prev)}
+                    className="rounded-full border border-[var(--accent)]/30 px-2 py-0.5 text-[10px] text-[var(--accent)]/80"
+                  >
+                    {showAll ? "收起" : "更多"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowSingles((prev) => !prev)}
+                    className="rounded-full border border-[var(--accent)]/30 px-2 py-0.5 text-[10px] text-[var(--accent)]/80"
+                  >
+                    单字：{showSingles ? "开" : "关"}
+                  </button>
+                </div>
+                <div className="mt-5 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-bg-soft)] p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs uppercase tracking-[0.35em] text-[var(--accent)]">词频</span>
+                    <span className="text-[10px] text-[var(--muted)]">Top 15</span>
+                  </div>
+                  {topTokens.length === 0 ? (
+                    <p className="mt-3 text-xs text-[var(--muted)]">暂无词频数据</p>
+                  ) : (
+                    <div className="mt-3 space-y-2">
+                      {topTokens.map((token) => (
+                        <div key={token.token} className="flex items-center gap-3">
+                          <span className="w-12 shrink-0 text-xs text-[var(--foreground)]">
+                            {token.token}
+                          </span>
+                          <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-[var(--surface)]/70">
+                            <div
+                              className="absolute inset-y-0 left-0 rounded-full bg-[var(--accent)]/70"
+                              style={{ width: `${(token.count / maxTokenCount) * 100}%` }}
+                            />
+                          </div>
+                          <span className="w-8 text-right text-[10px] text-[var(--muted)]">
+                            {token.count}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {importedFiles.length > 0 ? (
+                  <div className="mt-5 rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-bg-soft)] p-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs uppercase tracking-[0.35em] text-[var(--accent)]">
+                        已导入文件
+                      </span>
+                      <span className="text-[10px] text-[var(--muted)]">DOCX</span>
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      {importedFiles.map((item) => (
+                        <div key={item.name} className="flex items-center gap-2">
+                          <div className="flex-1 truncate text-[11px] text-[var(--foreground)]">
+                            {item.name}
+                          </div>
+                          <span className="text-[10px] text-[var(--muted)]">{item.count}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFile(item.name)}
+                            className="rounded-full border border-[var(--accent)]/30 px-2 py-0.5 text-[10px] text-[var(--accent)]"
+                          >
+                            移除
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {process.env.NODE_ENV !== "production" && docxPreview ? (
-                  <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-white/80 p-3 text-[10px] text-[var(--muted)]">
+                  <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-[var(--panel-bg-strong)] p-3 text-[10px] text-[var(--muted)]">
                     {(docxPreview || "").slice(0, 1200)}
                   </pre>
                 ) : null}
@@ -444,11 +828,11 @@ export default function Home() {
               animate={useBottomDrawer ? { y: 0 } : { x: 0 }}
               exit={useBottomDrawer ? { y: 260 } : { x: 260 }}
               transition={{ type: "spring", stiffness: 180, damping: 22 }}
-              className={`overflow-hidden bg-white/90 shadow-[0_24px_50px_-20px_rgba(60,42,30,0.45)] ${
-                useBottomDrawer
-                  ? "h-[80vh] w-full max-w-[760px] rounded-t-3xl"
-                  : "h-full w-full max-w-[520px] rounded-l-3xl"
-              }`}
+            className={`overflow-hidden bg-transparent shadow-[var(--panel-shadow-strong)] panel-text-contrast ${
+              useBottomDrawer
+                ? "h-[80vh] w-full max-w-[760px] rounded-t-3xl"
+                : "h-full w-full max-w-[520px] rounded-l-3xl"
+            }`}
               onClick={(event) => event.stopPropagation()}
             >
                 <div className="flex items-center justify-between border-b border-[var(--accent)]/10 px-6 py-4">
@@ -469,8 +853,8 @@ export default function Home() {
                     useBottomDrawer ? "h-[calc(80vh-72px)]" : "h-[calc(100vh-72px)]"
                   }`}
                 >
-                  <div className="flex flex-wrap gap-3">
-                    <div className="flex flex-1 items-center gap-2 rounded-full border border-[var(--accent)]/20 bg-white px-4 py-2">
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center gap-2 rounded-full border border-[var(--panel-border)] bg-[var(--panel-bg)] px-4 py-2">
                       <Search className="h-4 w-4 text-[var(--accent)]" />
                       <input
                         value={query}
@@ -482,34 +866,41 @@ export default function Home() {
                         className="w-full bg-transparent text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--muted)]"
                       />
                     </div>
-                    <select
-                      value={albumFilter}
-                      onChange={(event) => setAlbumFilter(event.target.value)}
-                      className="rounded-full border border-[var(--accent)]/20 bg-white px-4 py-2 text-sm text-[var(--foreground)]"
-                    >
-                      {albums.map((album) => (
-                        <option key={album} value={album}>
-                          {album}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={lyricistFilter}
-                      onChange={(event) => setLyricistFilter(event.target.value)}
-                      className="rounded-full border border-[var(--accent)]/20 bg-white px-4 py-2 text-sm text-[var(--foreground)]"
-                    >
-                      {lyricists.map((name) => (
-                        <option key={name} value={name}>
-                          {name}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      value={yearFilter}
-                      onChange={(event) => setYearFilter(event.target.value)}
-                      placeholder="年份过滤"
-                      className="rounded-full border border-[var(--accent)]/20 bg-white px-4 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)]"
-                    />
+                    <div ref={filterRef} className="flex flex-wrap gap-3">
+                      <DropdownSelect
+                        label="专辑"
+                        value={albumFilter}
+                        options={albums}
+                        open={openFilter === "album"}
+                        onToggle={() => setOpenFilter((prev) => (prev === "album" ? null : "album"))}
+                        onSelect={(value) => {
+                          setAlbumFilter(value);
+                          setOpenFilter(null);
+                        }}
+                      />
+                      <DropdownSelect
+                        label="词作者"
+                        value={lyricistFilter}
+                        options={lyricists}
+                        open={openFilter === "lyricist"}
+                        onToggle={() => setOpenFilter((prev) => (prev === "lyricist" ? null : "lyricist"))}
+                        onSelect={(value) => {
+                          setLyricistFilter(value);
+                          setOpenFilter(null);
+                        }}
+                      />
+                      <DropdownSelect
+                        label="年份"
+                        value={yearFilter}
+                        options={years}
+                        open={openFilter === "year"}
+                        onToggle={() => setOpenFilter((prev) => (prev === "year" ? null : "year"))}
+                        onSelect={(value) => {
+                          setYearFilter(value);
+                          setOpenFilter(null);
+                        }}
+                      />
+                    </div>
                   </div>
                   <motion.div
                     className="mt-6 grid gap-4"
@@ -518,7 +909,7 @@ export default function Home() {
                     animate="animate"
                   >
                     {filteredTracks.length === 0 ? (
-                      <div className="rounded-2xl border border-dashed border-[var(--accent)]/30 bg-white/60 p-6 text-sm text-[var(--muted)]">
+                      <div className="rounded-2xl border border-dashed border-[var(--panel-border)] bg-[var(--panel-bg-soft)] p-6 text-sm text-[var(--muted)]">
                         暂无匹配歌曲。导入 JSON 或调整关键词/过滤条件。
                       </div>
                     ) : (
@@ -529,7 +920,7 @@ export default function Home() {
                           <motion.div
                             key={track.id}
                             layout
-                            className="rounded-2xl border border-[var(--accent)]/20 bg-white/80 p-5 shadow-sm"
+                            className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-bg-soft)] p-5 shadow-sm"
                           >
                             <button
                               onClick={() => setExpandedId(isExpanded ? null : track.id)}

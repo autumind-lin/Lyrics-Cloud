@@ -7,6 +7,105 @@
   --muted: #7b6f68;
   --surface: #fff8f1;
   --surface-strong: #fbe6d3;
+  --accent-soft: rgba(240, 91, 63, 0.2);
+  --bg-grad-1: #fff6ea;
+  --bg-grad-2: #f6f0e6;
+  --bg-grad-3: #efe4d7;
+  --wc-grad-1: rgba(246, 228, 208, 0.5);
+  --wc-grad-2: rgba(224, 198, 176, 0.32);
+  --wc-grad-3: rgba(36, 24, 18, 0.08);
+  --wc-grad-4: rgba(14, 10, 8, 0.2);
+  --word-glow-1: 0 0 26px rgba(255, 226, 196, 0.6);
+  --word-glow-2: 0 0 14px rgba(140, 78, 42, 0.35);
+  --word-selected: rgba(86, 46, 24, 0.98);
+  --word-base: 58, 38, 26;
+  --panel-bg: rgba(255, 255, 255, 0.5);
+  --panel-bg-strong: rgba(255, 255, 255, 0.7);
+  --panel-bg-soft: rgba(255, 255, 255, 0.42);
+  --panel-border: rgba(240, 91, 63, 0.25);
+  --panel-shadow: 0 10px 20px -14px rgba(60, 42, 30, 0.35);
+  --panel-shadow-strong: 0 24px 50px -20px rgba(60, 42, 30, 0.45);
+}
+
+.theme-ink {
+  --background: #eef2ee;
+  --foreground: #1f2623;
+  --accent: #2f6f5a;
+  --muted: #5f6c66;
+  --surface: #f4f7f4;
+  --surface-strong: #e3efe8;
+  --accent-soft: rgba(47, 111, 90, 0.18);
+  --bg-grad-1: #f6faf6;
+  --bg-grad-2: #eef2ee;
+  --bg-grad-3: #e3e9e4;
+  --wc-grad-1: rgba(218, 232, 224, 0.5);
+  --wc-grad-2: rgba(184, 210, 198, 0.32);
+  --wc-grad-3: rgba(20, 34, 28, 0.08);
+  --wc-grad-4: rgba(12, 20, 16, 0.2);
+  --word-glow-1: 0 0 26px rgba(198, 236, 220, 0.6);
+  --word-glow-2: 0 0 14px rgba(52, 106, 86, 0.35);
+  --word-selected: rgba(30, 92, 72, 0.98);
+  --word-base: 38, 70, 58;
+  --panel-bg: rgba(244, 247, 244, 0.55);
+  --panel-bg-strong: rgba(244, 247, 244, 0.75);
+  --panel-bg-soft: rgba(244, 247, 244, 0.48);
+  --panel-border: rgba(47, 111, 90, 0.22);
+  --panel-shadow: 0 10px 20px -14px rgba(34, 52, 44, 0.35);
+  --panel-shadow-strong: 0 24px 50px -20px rgba(34, 52, 44, 0.4);
+}
+
+.theme-silver {
+  --background: #f4f5f4;
+  --foreground: #0f1211;
+  --accent: #386939;
+  --muted: #1f2523;
+  --surface: #f7f7f6;
+  --surface-strong: #e8ebe7;
+  --accent-soft: rgba(56, 105, 57, 0.18);
+  --bg-grad-1: #c7c9c9;
+  --bg-grad-2: #c0b58e;
+  --bg-grad-3: #93a989;
+  --wc-grad-1: rgba(199, 201, 201, 0.42);
+  --wc-grad-2: rgba(192, 181, 142, 0.28);
+  --wc-grad-3: rgba(56, 105, 57, 0.1);
+  --wc-grad-4: rgba(18, 52, 24, 0.22);
+  --word-glow-1: 0 0 22px rgba(192, 181, 142, 0.55);
+  --word-glow-2: 0 0 12px rgba(18, 52, 24, 0.28);
+  --word-selected: rgba(18, 52, 24, 0.98);
+  --word-base: 31, 36, 34;
+  --panel-bg: rgba(199, 201, 201, 0.45);
+  --panel-bg-strong: rgba(192, 181, 142, 0.55);
+  --panel-bg-soft: rgba(147, 169, 137, 0.35);
+  --panel-border: rgba(56, 105, 57, 0.28);
+  --panel-shadow: 0 10px 22px -14px rgba(18, 52, 24, 0.38);
+  --panel-shadow-strong: 0 24px 50px -20px rgba(18, 52, 24, 0.45);
+}
+
+.theme-bone {
+  --background: #e7ddd2;
+  --foreground: #1b2a31;
+  --accent: #5399a0;
+  --muted: #2f4248;
+  --surface: #eee4d9;
+  --surface-strong: #e0d2c4;
+  --accent-soft: rgba(83, 153, 160, 0.16);
+  --bg-grad-1: #e0d7c7;
+  --bg-grad-2: #cbb9ab;
+  --bg-grad-3: #98c3c7;
+  --wc-grad-1: rgba(224, 215, 199, 0.4);
+  --wc-grad-2: rgba(152, 195, 199, 0.24);
+  --wc-grad-3: rgba(83, 153, 160, 0.18);
+  --wc-grad-4: rgba(27, 42, 49, 0.32);
+  --word-glow-1: 0 0 22px rgba(152, 195, 199, 0.45);
+  --word-glow-2: 0 0 12px rgba(27, 42, 49, 0.34);
+  --word-selected: rgba(27, 42, 49, 0.98);
+  --word-base: 27, 42, 49;
+  --panel-bg: rgba(224, 215, 199, 0.45);
+  --panel-bg-strong: rgba(203, 185, 171, 0.6);
+  --panel-bg-soft: rgba(152, 195, 199, 0.3);
+  --panel-border: rgba(83, 153, 160, 0.32);
+  --panel-shadow: 0 10px 22px -14px rgba(27, 42, 49, 0.4);
+  --panel-shadow-strong: 0 24px 50px -20px rgba(27, 42, 49, 0.5);
 }
 
 @theme inline {
@@ -17,14 +116,22 @@
 }
 
 body {
-  background: radial-gradient(circle at top, #fff6ea 0%, #f6f0e6 40%, #efe4d7 100%);
+  background: var(--background);
   color: var(--foreground);
   font-family: var(--font-manrope), ui-sans-serif, system-ui;
   min-height: 100vh;
 }
 
+.app-shell {
+  background: radial-gradient(circle at top, var(--bg-grad-1) 0%, var(--bg-grad-2) 40%, var(--bg-grad-3) 100%);
+}
+
+.panel-text-contrast {
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.25);
+}
+
 mark {
-  background: rgba(240, 91, 63, 0.2);
+  background: var(--accent-soft);
   color: inherit;
   padding: 0 0.2em;
   border-radius: 0.3em;

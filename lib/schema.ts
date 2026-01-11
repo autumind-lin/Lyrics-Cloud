@@ -24,6 +24,7 @@ export type TrackRecord = {
   lyricists: string[];
   lyrics: string;
   artist: string;
+  sourceFile?: string;
 };
 
 export type NormalizedPackage = {
@@ -32,7 +33,7 @@ export type NormalizedPackage = {
   tracks: TrackRecord[];
 };
 
-const nonWordSplit = /[、,，;/|]+/g;
+const nonWordSplit = /[、,，;/|\s]+/g;
 
 const normalizeLyricists = (value?: string | string[]): string[] => {
   if (!value) {

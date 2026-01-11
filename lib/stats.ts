@@ -86,6 +86,18 @@ const stopChars = new Set([
   "与",
   "其",
   "之",
+  "乎",
+  "者",
+  "矣",
+  "焉",
+  "哉",
+  "于",
+  "以",
+  "所",
+  "乃",
+  "则",
+  "非",
+  "皆",
   "、",
   "。",
   "，",
@@ -117,17 +129,21 @@ const isValidChar = (char: string) => {
 };
 
 const isPunctuation = (value: string) => /[。，！？；：、“”《》【】（）—…\-_]/.test(value);
+const hasCjk = (value: string) => /[\u4e00-\u9fa5]/.test(value);
 
-export const segmentWords = (text: string): string[] => {
+export const segmentWords = (text: string, options?: { includeSingle?: boolean }): string[] => {
+  const includeSingle = options?.includeSingle ?? false;
   if (typeof Intl !== "undefined" && "Segmenter" in Intl) {
     const segmenter = new Intl.Segmenter("zh-Hans", { granularity: "word" });
     const results: string[] = [];
     for (const segment of segmenter.segment(text)) {
       const token = segment.segment.trim();
       if (!token) continue;
-      if (token.length < 2) continue;
       if (isPunctuation(token)) continue;
+      if (!hasCjk(token)) continue;
+      if (!includeSingle && token.length < 2) continue;
       if (stopWords.has(token)) continue;
+      if (token.length === 1 && stopChars.has(token)) continue;
       results.push(token);
     }
     return results;
@@ -135,18 +151,32 @@ export const segmentWords = (text: string): string[] => {
   return [];
 };
 
-export const buildBigramStats = (tracks: TrackRecord[], limit = 20): BigramToken[] => {
+export const buildBigramStats = (
+  tracks: TrackRecord[],
+  limit = 20,
+  options?: { includeSingle?: boolean }
+): BigramToken[] => {
   const counts = new Map<string, number>();
+  const includeSingle = options?.includeSingle ?? false;
 
   tracks.forEach((track) => {
-    const tokens = segmentWords(track.lyrics);
+    const uniqueLines = Array.from(
+      new Set(
+        track.lyrics
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+      )
+    );
+    const uniqueText = uniqueLines.join("\n");
+    const tokens = segmentWords(uniqueText, { includeSingle });
     if (tokens.length) {
       tokens.forEach((token) => {
         counts.set(token, (counts.get(token) ?? 0) + 1);
       });
       return;
     }
-    const text = track.lyrics.replace(/\s+/g, "");
+    const text = uniqueText.replace(/\s+/g, "");
     const chars = Array.from(text);
     for (let i = 0; i < chars.length - 1; i += 1) {
       const first = chars[i];

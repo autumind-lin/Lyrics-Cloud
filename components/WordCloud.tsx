@@ -7,9 +7,21 @@ type WordItem = {
   value: number;
 };
 
+type LayoutWord = {
+  text: string;
+  value: number;
+  x: number;
+  y: number;
+  size: number;
+  rotate: number;
+  width?: number;
+  height?: number;
+};
+
 type WordCloudProps = {
   words: WordItem[];
   maxWords?: number;
+  showAll?: boolean;
   selectedWord?: string;
   snippets?: Array<{ line: string; title?: string }>;
   onSelect?: (word: string) => void;
@@ -98,30 +110,36 @@ const placeSnippets = (
     y: number;
     w: number;
     h: number;
+    size: number;
     line: string;
     title?: string;
     wrap: boolean;
   }> = [];
-  const minDist = verticalSpread ? 110 : 140;
-  const minCenterDist = verticalSpread ? 170 : 200;
-  const padding = 40;
-  const lineHeight = fontSize * 1.45;
-  const boxHeight = allowWrap ? lineHeight * 2.1 : lineHeight;
-  const gap = allowWrap ? 10 : 16;
-  const maxWidth = Math.min(width - padding * 2, allowWrap ? width * 0.86 : 520);
-  const centerBox = { w: 220, h: 140 };
+  const minDist = verticalSpread ? 110 : 120;
+  const minCenterDist = verticalSpread ? 150 : 170;
+  const padding = 36;
+  const gap = allowWrap ? 10 : 14;
+  const maxWidth = Math.min(width - padding * 2, allowWrap ? width * 0.86 : 420);
+  const aspect = Math.max(0.6, Math.min(1.9, width / Math.max(1, height)));
+  const spreadX = 1 + Math.max(0, aspect - 1) * 0.9;
+  const spreadY = Math.min(1.05, 1 / Math.max(0.9, spreadX));
+  const centerBox = { w: 180, h: 120 };
   for (let i = 0; i < snippets.length; i += 1) {
     const text = snippets[i].line;
     const title = snippets[i].title ? ` — ${snippets[i].title}` : "";
+    const rawLength = Math.max(1, text.length + title.length);
+    const fitSize = Math.max(14, Math.min(fontSize, Math.floor(maxWidth / (rawLength * 0.62))));
+    const lineHeight = fitSize * 1.45;
+    const boxHeight = allowWrap ? lineHeight * 1.7 : lineHeight;
     const estimatedWidth = Math.min(
       maxWidth,
-      Math.max(180, Math.min(maxWidth, (text.length + title.length) * fontSize * 0.62))
+      Math.max(160, Math.min(maxWidth, rawLength * fitSize * 0.62))
     );
     const needsWrap = allowWrap && estimatedWidth > maxWidth * 0.92;
     let angle = rand() * Math.PI * 2;
-    let radius = 160 + rand() * 90 + i * 22;
-    let x = centerX + radius * Math.cos(angle);
-    let y = centerY + radius * Math.sin(angle);
+    let radius = 130 + rand() * 80 + i * 14;
+    let x = centerX + radius * Math.cos(angle) * spreadX;
+    let y = centerY + radius * Math.sin(angle) * spreadY;
     if (verticalSpread) {
       const direction = i % 2 === 0 ? -1 : 1;
       const offsetIndex = Math.ceil((i + 1) / 2);
@@ -132,9 +150,9 @@ const placeSnippets = (
     y = Math.max(padding + boxHeight / 2, Math.min(height - padding - boxHeight / 2, y));
     let attempts = 0;
     let placedOk = false;
-    while (attempts < 14) {
-      const tooClose =
-        Math.hypot(x - centerX, y - centerY) < minCenterDist ||
+    while (attempts < 120) {
+    const tooClose =
+      Math.hypot(x - centerX, y - centerY) < minCenterDist ||
         (Math.abs(x - centerX) < centerBox.w / 2 + estimatedWidth / 2 + gap &&
           Math.abs(y - centerY) < centerBox.h / 2 + boxHeight / 2 + gap) ||
         placed.some((p) => {
@@ -142,15 +160,15 @@ const placeSnippets = (
           const overlapY = Math.abs(p.y - y) < p.h / 2 + boxHeight / 2 + gap;
           return overlapX && overlapY;
         }) ||
-        placed.some((p) => Math.hypot(p.x - x, p.y - y) < minDist);
+        placed.some((p) => Math.hypot(p.x - x, p.y - y) < minDist * (spreadY >= 1 ? 1.35 : 1.1));
       if (!tooClose) {
         placedOk = true;
         break;
       }
-      radius += 26;
+      radius += 18;
       angle += 2.3999632297;
-      x = centerX + radius * Math.cos(angle);
-      y = centerY + radius * Math.sin(angle);
+      x = centerX + radius * Math.cos(angle) * spreadX;
+      y = centerY + radius * Math.sin(angle) * spreadY;
       if (verticalSpread) {
         const direction = (attempts % 2 === 0 ? -1 : 1) * (i % 2 === 0 ? -1 : 1);
         x = centerX + (rand() - 0.5) * (allowWrap ? 50 : 90);
@@ -166,6 +184,7 @@ const placeSnippets = (
       y,
       w: estimatedWidth,
       h: boxHeight,
+      size: fitSize,
       line: text,
       title: snippets[i].title,
       wrap: needsWrap,
@@ -177,22 +196,19 @@ const placeSnippets = (
 export default function WordCloud({
   words,
   maxWords = expandedWords,
+  showAll = false,
   selectedWord,
   snippets = [],
   onSelect,
   onClear,
 }: WordCloudProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const particleCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const highlightCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [showAll, setShowAll] = useState(false);
+  // particle layer removed
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [error, setError] = useState<string | null>(null);
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
-  const [selectedBox, setSelectedBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [layoutWords, setLayoutWords] = useState<LayoutWord[]>([]);
   const clickGuardRef = useRef(0);
-  const anchorRef = useRef<{ x: number; y: number } | null>(null);
   const lastSizeRef = useRef({ width: 0, height: 0 });
   const lastRenderKeyRef = useRef<string>("");
   const fontRangeRef = useRef({ min: 12, max: 36 });
@@ -206,15 +222,25 @@ export default function WordCloud({
     [trimmedWords]
   );
   const isCompact = size.width > 0 && size.width < 720;
-  const isPortrait = size.height > size.width;
-  const snippetFontSize = isCompact ? 18 : 21;
-  const allowWrap = isCompact;
-  const verticalSpread = isCompact && isPortrait;
+  const snippetFontSize = 22;
+  const allowWrap = false;
+  const verticalSpread = false;
+  const selectedNode = useMemo(
+    () => layoutWords.find((word) => word.text === selectedWord),
+    [layoutWords, selectedWord]
+  );
+  const focusOffset = useMemo(() => {
+    if (!selectedWord || !selectedNode) return { x: 0, y: 0 };
+    return {
+      x: size.width / 2 - selectedNode.x,
+      y: size.height / 2 - selectedNode.y,
+    };
+  }, [selectedWord, selectedNode, size.width, size.height]);
   const snippetNodes = useMemo(() => {
     if (!selectedWord || snippets.length === 0 || !size.width || !size.height) return [];
-    const centerX = selectedBox ? selectedBox.x + selectedBox.w / 2 : anchor?.x ?? size.width / 2;
-    const centerY = selectedBox ? selectedBox.y + selectedBox.h / 2 : anchor?.y ?? size.height / 2;
-    const maxSnippets = size.width < 720 ? 6 : 6;
+    const centerX = (selectedNode?.x ?? anchor?.x ?? size.width / 2) + focusOffset.x;
+    const centerY = (selectedNode?.y ?? anchor?.y ?? size.height / 2) + focusOffset.y;
+    const maxSnippets = Math.min(15, snippets.length);
     const seed = hashString(
       `${selectedWord}-${snippets.length}-${size.width}x${size.height}-${Math.round(centerX)}-${Math.round(centerY)}`
     );
@@ -238,7 +264,8 @@ export default function WordCloud({
     snippetFontSize,
     allowWrap,
     verticalSpread,
-    selectedBox,
+    selectedNode,
+    focusOffset,
   ]);
 
   useEffect(() => {
@@ -277,248 +304,110 @@ export default function WordCloud({
     };
   }, []);
 
-  useEffect(() => {
-    const canvas = particleCanvasRef.current;
-    if (!canvas || !size.width || !size.height) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const ratio = window.devicePixelRatio || 1;
-    const scale = 0.75;
-    canvas.width = Math.floor(size.width * ratio * scale);
-    canvas.height = Math.floor(size.height * ratio * scale);
-    canvas.style.width = `${size.width}px`;
-    canvas.style.height = `${size.height}px`;
-    ctx.setTransform(ratio * scale, 0, 0, ratio * scale, 0, 0);
-
-    const count = Math.min(1800, Math.max(900, Math.round((size.width * size.height) / 2200)));
-    const particles = Array.from({ length: count }, () => ({
-      x: Math.random() * size.width,
-      y: Math.random() * size.height,
-      r: 0.9 + Math.random() * 1.8,
-      a: 0.22 + Math.random() * 0.35,
-      vx: (Math.random() - 0.5) * 0.14,
-      vy: (Math.random() - 0.5) * 0.14,
-    }));
-
-    let raf = 0;
-    let last = 0;
-    const fps = reducedMotion ? 8 : 24;
-
-    const tick = (time: number) => {
-      raf = window.requestAnimationFrame(tick);
-      if (document.hidden) return;
-      if (time - last < 1000 / fps) return;
-      last = time;
-      ctx.clearRect(0, 0, size.width, size.height);
-      for (const p of particles) {
-        p.x += p.vx;
-        p.y += p.vy;
-        if (p.x < -10) p.x = size.width + 10;
-        if (p.x > size.width + 10) p.x = -10;
-        if (p.y < -10) p.y = size.height + 10;
-        if (p.y > size.height + 10) p.y = -10;
-        ctx.beginPath();
-        ctx.fillStyle = `rgba(248, 240, 232, ${p.a})`;
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    };
-
-    raf = window.requestAnimationFrame(tick);
-    return () => {
-      window.cancelAnimationFrame(raf);
-    };
-  }, [size.width, size.height]);
+  // sand/grain layer removed
 
   useEffect(() => {
-    if (!canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const handlePointer = (event: PointerEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      anchorRef.current = {
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top,
-      };
-    };
-    canvas.addEventListener("pointerdown", handlePointer);
-    return () => {
-      canvas.removeEventListener("pointerdown", handlePointer);
-    };
-  }, [size.width, size.height, trimmedWords.length]);
-
-  useEffect(() => {
-    const canvas = highlightCanvasRef.current;
-    if (!canvas || !size.width || !size.height) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const ratio = window.devicePixelRatio || 1;
-    canvas.width = Math.floor(size.width * ratio);
-    canvas.height = Math.floor(size.height * ratio);
-    canvas.style.width = `${size.width}px`;
-    canvas.style.height = `${size.height}px`;
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    ctx.clearRect(0, 0, size.width, size.height);
-    if (!selectedWord || !selectedBox) return;
-    ctx.fillStyle = "rgba(14, 10, 8, 0.2)";
-    ctx.fillRect(0, 0, size.width, size.height);
-    const fontSize = Math.max(16, Math.min(selectedBox.h * 1.1, 72));
-    ctx.font =
-      `700 ${fontSize}px "Noto Serif SC","Source Han Serif SC","STSong","Songti SC","SimSun",serif`;
-    ctx.fillStyle = "rgba(252, 246, 238, 0.96)";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    const cx = selectedBox.x + selectedBox.w / 2;
-    const cy = selectedBox.y + selectedBox.h / 2;
-    ctx.fillText(selectedWord, cx, cy);
-  }, [selectedWord, selectedBox, size.width, size.height]);
-
-  useEffect(() => {
-    if (!canvasRef.current) return;
     if (!size.width || !size.height) return;
-    if (trimmedWords.length === 0) return;
+    if (trimmedWords.length === 0) {
+      setLayoutWords([]);
+      return;
+    }
     let cancelled = false;
     setError(null);
     const renderKey = `${wordsKey}|${size.width}x${size.height}`;
     if (renderKey === lastRenderKeyRef.current) return;
     lastRenderKeyRef.current = renderKey;
-    const seed = hashString(`${wordsKey}|${size.width}x${size.height}`);
+    const seed = hashString(renderKey);
+    const rng = seededRandom(seed);
 
-    const timer = window.setTimeout(() => {
-      const run = async () => {
-        try {
-          const module = await import("wordcloud");
-          if (cancelled || !canvasRef.current) return;
-          const WordCloud = module.default ?? module;
-          const canvas = canvasRef.current;
-          const ratio = window.devicePixelRatio || 1;
-          canvas.width = Math.floor(size.width * ratio);
-          canvas.height = Math.floor(size.height * ratio);
-          canvas.style.width = `${size.width}px`;
-          canvas.style.height = `${size.height}px`;
-          const list = trimmedWords.map((item) => [item.text, item.value]);
-          const maxValue = Math.max(...list.map((item) => item[1]), 1);
-          const minValue = Math.min(...list.map((item) => item[1]), maxValue);
-          const range = Math.max(1, maxValue - minValue);
-          const { min, max } = fontRangeRef.current;
-          const containerArea = size.width * size.height;
-          const estimatedArea = list.reduce((sum, [text, value]) => {
-            const normalized =
-              Math.log1p(Math.max(0, value - minValue)) / Math.log1p(range + 1);
-            const fontSize = min + (max - min) * Math.sqrt(Math.max(0, normalized));
-            const widthEstimate = Math.max(1, text.length) * fontSize * 0.6 + 8;
-            const heightEstimate = fontSize * 1.25;
-            return sum + widthEstimate * heightEstimate;
-          }, 0);
-          const targetCoverage = 0.85;
-          const coverage = containerArea ? estimatedArea / containerArea : 0.3;
-          const scaleBoost = Math.min(
-            5,
-            Math.max(0.95, Math.sqrt(targetCoverage / Math.max(0.05, coverage)))
-          );
+    const run = async () => {
+      try {
+        const mod = await import("d3-cloud");
+        if (cancelled) return;
+        const cloud = (mod as any).default ?? mod;
+        const list = trimmedWords.map((item) => ({ text: item.text, value: item.value }));
+        const maxValue = Math.max(...list.map((item) => item.value), 1);
+        const minValue = Math.min(...list.map((item) => item.value), maxValue);
+        const range = Math.max(1, maxValue - minValue);
+        const { min, max } = fontRangeRef.current;
+        const fontScale = (value: number) => {
+          const normalized =
+            Math.log1p(Math.max(0, value - minValue)) / Math.log1p(range + 1);
+          return min + (max - min) * Math.sqrt(Math.max(0, normalized));
+        };
 
-          WordCloud(canvas, {
-            list,
-            backgroundColor: "rgba(0,0,0,0)",
-            gridSize: Math.max(6, Math.round(size.width / 140)) * ratio,
-            weightFactor: (weight: number) => {
-              const normalized =
-                Math.log1p(Math.max(0, weight - minValue)) / Math.log1p(range + 1);
-              return (min + (max - min) * Math.sqrt(Math.max(0, normalized))) * scaleBoost * ratio;
-            },
-            fontFamily:
-              '"Noto Serif SC","Source Han Serif SC","STSong","Songti SC","SimSun",serif',
-            fontWeight: () => "400",
-            color: (word: string, weight: number) => {
-              const normalized =
-                Math.log1p(Math.max(0, weight - minValue)) / Math.log1p(range + 1);
-              const alpha = 0.45 + Math.min(0.4, Math.max(0, normalized) * 0.4);
-              return `rgba(28,24,22,${alpha})`;
-            },
-            rotateRatio: 0,
-            rotationSteps: 1,
-            shuffle: false,
-            random: seededRandom(seed),
-            drawOutOfBound: false,
-            clearCanvas: true,
-            origin: [Math.floor((size.width * ratio) / 2), Math.floor((size.height * ratio) / 2)],
-            shrinkToFit: false,
-            shape: "square",
-            spiral: "rectangular",
-            click: (item: [string, number], dimension?: number[]) => {
-              if (!item) return;
-              const center = { x: size.width / 2, y: size.height / 2 };
-              let nextAnchor: { x: number; y: number } | null = null;
-              const estimateBox = (anchorPoint: { x: number; y: number }) => {
-                const fontSize = Math.max(16, Math.min(fontRangeRef.current.max, 72));
-                const widthEstimate = Math.max(60, item[0].length * fontSize * 0.7 + 12);
-                const heightEstimate = fontSize * 1.2;
-                return {
-                  x: anchorPoint.x - widthEstimate / 2,
-                  y: anchorPoint.y - heightEstimate / 2,
-                  w: widthEstimate,
-                  h: heightEstimate,
-                };
-              };
-              if (Array.isArray(dimension) && dimension.length >= 4) {
-                const centerX = (dimension[0] + dimension[2] / 2) / ratio;
-                const centerY = (dimension[1] + dimension[3] / 2) / ratio;
-                if (Number.isFinite(centerX) && Number.isFinite(centerY)) {
-                  nextAnchor = { x: centerX, y: centerY };
-                  setSelectedBox({
-                    x: dimension[0] / ratio,
-                    y: dimension[1] / ratio,
-                    w: dimension[2] / ratio,
-                    h: dimension[3] / ratio,
-                  });
-                }
-              }
-              if (!nextAnchor) {
-                const fallback =
-                  anchorRef.current &&
-                  Number.isFinite(anchorRef.current.x) &&
-                  Number.isFinite(anchorRef.current.y)
-                    ? anchorRef.current
-                    : center;
-                nextAnchor = fallback;
-                setSelectedBox(estimateBox(nextAnchor));
-              }
-              setAnchor(nextAnchor);
-              onSelect?.(item[0]);
-              clickGuardRef.current = Date.now();
-            },
+        const layout = cloud()
+          .size([size.width, size.height])
+          .words(list.map((w) => ({ ...w, size: fontScale(w.value) })))
+          .padding(6)
+          .rotate(() => 0)
+          .font('"Noto Serif SC","Source Han Serif SC","STSong","Songti SC","SimSun",serif')
+          .fontSize((d: any) => d.size)
+          .random(() => rng());
+
+        layout.on("end", (words: LayoutWord[]) => {
+          if (cancelled) return;
+          if (!words.length) {
+            setLayoutWords([]);
+            return;
+          }
+          let minX = Infinity;
+          let maxX = -Infinity;
+          let minY = Infinity;
+          let maxY = -Infinity;
+          words.forEach((w: any) => {
+            const wHalf = (w.width ?? w.size * w.text.length * 0.6) / 2;
+            const hHalf = (w.height ?? w.size) / 2;
+            minX = Math.min(minX, w.x - wHalf);
+            maxX = Math.max(maxX, w.x + wHalf);
+            minY = Math.min(minY, w.y - hHalf);
+            maxY = Math.max(maxY, w.y + hHalf);
           });
-        } catch (err) {
-          setError(err instanceof Error ? err.message : "wordcloud_error");
-        }
-      };
+          const rawW = Math.max(1, maxX - minX);
+          const rawH = Math.max(1, maxY - minY);
+          const scale = Math.min((size.width * 0.86) / rawW, (size.height * 0.86) / rawH, 1.15);
+          const centered = words.map((w: any) => ({
+            text: w.text,
+            value: w.value,
+            x: size.width / 2 + w.x * scale,
+            y: size.height / 2 + w.y * scale,
+            size: w.size * scale,
+            rotate: w.rotate ?? 0,
+            width: (w.width ?? w.size * w.text.length * 0.6) * scale,
+            height: (w.height ?? w.size) * scale,
+          }));
+          setLayoutWords(centered);
+        });
 
-      run();
-    }, 160);
+        layout.start();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "wordcloud_error");
+      }
+    };
 
+    run();
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
     };
-  }, [size.width, size.height, trimmedWords]);
+  }, [size.width, size.height, trimmedWords, wordsKey]);
 
   const isReady = size.width > 0 && size.height > 0;
 
   return (
     <div
       ref={containerRef}
-      className="relative h-full w-full overflow-hidden font-poetic"
+      className="relative h-full w-full overflow-hidden font-poetic wordcloud-root"
       onClick={() => {
         if (Date.now() - clickGuardRef.current < 200) {
           return;
         }
         setAnchor(null);
-        setSelectedBox(null);
         onClear?.();
       }}
     >
       <div className="absolute inset-0 z-0 wordcloud-gradient pointer-events-none" />
-      <canvas ref={particleCanvasRef} className="absolute inset-0 z-[2] pointer-events-none" />
+      <div className="absolute inset-0 z-[1] wordcloud-noise pointer-events-none" />
+      {/* sand/grain layer removed */}
       {!isReady ? (
         <div className="flex h-full items-center justify-center text-sm text-[var(--muted)]">
           词云加载中...
@@ -534,41 +423,84 @@ export default function WordCloud({
       ) : (
         <>
           <div
-            className={`absolute inset-0 z-10 transition-opacity duration-500 ${
-              selectedWord ? "wordcloud-drift opacity-65" : "opacity-100"
+            className={`absolute inset-0 z-10 transition-opacity duration-700 ${
+              selectedWord ? "opacity-75" : "opacity-90"
             }`}
           >
-            <canvas ref={canvasRef} className="absolute inset-0 cursor-pointer pointer-events-auto" />
+            {layoutWords.map((word) => {
+              const isSelected = selectedWord === word.text;
+              const isDimmed = Boolean(selectedWord && !isSelected);
+              const selX = selectedNode?.x ?? word.x;
+              const selY = selectedNode?.y ?? word.y;
+              const dx = word.x - selX;
+              const dy = word.y - selY;
+              const dist = Math.max(1, Math.hypot(dx, dy));
+              const push = selectedWord
+                ? Math.min(120, Math.max(50, Math.min(size.width, size.height) / 6))
+                : 0;
+              const tx = isDimmed ? (dx / dist) * push : 0;
+              const ty = isDimmed ? (dy / dist) * push : 0;
+              const alpha = isDimmed ? 0.16 : 0.92;
+              const focusTx = isSelected ? focusOffset.x : 0;
+              const focusTy = isSelected ? focusOffset.y : 0;
+              const driftSeed = hashString(`${word.text}-${Math.round(word.x)}-${Math.round(word.y)}`);
+              const driftRand = seededRandom(driftSeed);
+              const driftScale = isSelected ? 0.5 : 1;
+              const fx = (driftRand() - 0.5) * 20 * driftScale;
+              const fy = (driftRand() - 0.5) * 18 * driftScale;
+              const dur = (14 + driftRand() * 10 + (isSelected ? 6 : 0)).toFixed(2);
+              const baseColor = `rgba(var(--word-base), ${alpha})`;
+              return (
+                <span
+                  key={`${word.text}-${word.x}-${word.y}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setAnchor({ x: word.x, y: word.y });
+                    onSelect?.(word.text);
+                    clickGuardRef.current = Date.now();
+                  }}
+                  className={`absolute select-none transition-[transform,opacity,color] duration-1000 ease-out ${
+                    isSelected ? "font-semibold wordcloud-selected" : ""
+                  }`}
+                  style={{
+                    left: word.x,
+                    top: word.y,
+                    transform: `translate(-50%, -50%) translate(${tx + focusTx}px, ${ty + focusTy}px)`,
+                    opacity: isSelected ? 1 : alpha,
+                    color: isSelected ? "var(--word-selected)" : baseColor,
+                    pointerEvents: isDimmed ? "none" : "auto",
+                    transitionDuration: selectedWord ? "2200ms" : "1200ms",
+                  }}
+                >
+                  <span
+                    className="word-float"
+                    style={
+                      {
+                        fontSize: `${word.size}px`,
+                        "--fx": `${fx}px`,
+                        "--fy": `${fy}px`,
+                        "--dur": `${dur}s`,
+                        "--rot": `${word.rotate}deg`,
+                      } as React.CSSProperties
+                    }
+                  >
+                    {word.text}
+                  </span>
+                </span>
+              );
+            })}
           </div>
-          <canvas ref={highlightCanvasRef} className="absolute inset-0 z-20 pointer-events-none" />
-          <div className="absolute right-4 top-4 z-30 flex flex-wrap items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs text-[var(--muted)] shadow-sm pointer-events-auto">
-            <span>高频词</span>
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                setShowAll((prev) => !prev);
-              }}
-              className="rounded-full border border-[var(--accent)]/30 px-2 py-0.5 text-[10px] text-[var(--accent)]"
-            >
-              {showAll ? "收起" : "更多"}
-            </button>
+          <div className="absolute left-6 top-12 z-30 text-[10px] text-[var(--accent)]/80 pointer-events-none">
+            <span className="text-[10px] uppercase tracking-[0.3em]">高频词</span>
           </div>
         </>
       )}
       {selectedWord && snippetNodes.length > 0 ? (
         <div className="absolute inset-0 z-40 pointer-events-none">
-          <div className="absolute left-1/2 top-1/2 z-40 h-56 w-56 -translate-x-1/2 -translate-y-1/2">
-            <span className="ripple-ring ripple-ring-1" />
-            <span className="ripple-ring ripple-ring-2" />
-            <span className="ripple-ring ripple-ring-3" />
-          </div>
           {snippetNodes.map((snippet, index) => (
             <div
               key={`${selectedWord}-snippet-${index}`}
-              className={`absolute font-semibold leading-7 text-[rgba(24,18,16,0.97)] ${
-                isCompact ? "text-[18px]" : "text-[21px]"
-              } ${
+              className={`absolute font-semibold leading-7 snippet-enter snippet-drift ${
                 snippet.wrap ? "whitespace-normal break-words" : "whitespace-nowrap"
               }`}
               style={{
@@ -576,10 +508,10 @@ export default function WordCloud({
                 top: snippet.y,
                 width: snippet.wrap ? `${Math.min(snippet.w, size.width * 0.86)}px` : `${snippet.w}px`,
                 transform: "translate(-50%, -50%)",
-                textShadow: "0 8px 22px rgba(28,18,12,0.4)",
-                filter: "drop-shadow(0 2px 12px rgba(18,12,8,0.24))",
-                animation: "snippet-float 20s ease-in-out infinite",
+                textShadow: "0 4px 14px rgba(18,18,18,0.18)",
                 animationDelay: `${index * 120}ms`,
+                fontSize: `${snippet.size}px`,
+                color: "rgba(var(--word-base), 0.96)",
               }}
             >
               <span>{highlightSnippet(snippet.line, selectedWord)}</span>
@@ -592,33 +524,54 @@ export default function WordCloud({
       ) : null}
       <style jsx global>{`
         .font-poetic {
-          font-family: "Noto Serif SC", "Source Han Serif SC", "STSong", "Songti SC", "SimSun",
-            serif;
+          font-family: "STKaiti", "Kaiti SC", "KaiTi", "KaiTi_GB2312", "Noto Serif SC",
+            "Source Han Serif SC", "STSong", "Songti SC", "SimSun", serif;
+          font-kerning: normal;
+        }
+
+        .wordcloud-root {
+          text-rendering: optimizeLegibility;
+          -webkit-font-smoothing: antialiased;
         }
 
         .wordcloud-gradient {
-          background: radial-gradient(circle at 30% 20%, rgba(238, 216, 195, 0.3), transparent 60%),
-            radial-gradient(circle at 70% 80%, rgba(214, 190, 172, 0.28), transparent 55%),
-            radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0), rgba(20, 14, 12, 0.18)),
-            linear-gradient(120deg, rgba(234, 218, 202, 0.78), rgba(218, 200, 184, 0.8));
+          background: radial-gradient(circle at 28% 18%, var(--wc-grad-1), transparent 62%),
+            radial-gradient(circle at 78% 78%, var(--wc-grad-2), transparent 58%),
+            radial-gradient(circle at 50% 50%, var(--wc-grad-3), var(--wc-grad-4)),
+            linear-gradient(120deg, var(--bg-grad-1), var(--bg-grad-2));
           background-size: 180% 180%;
           animation: mistMove 36s ease-in-out infinite;
         }
 
-        .wordcloud-drift {
-          animation: cloudDrift 18s ease-in-out infinite;
-          filter: blur(0.35px);
+        .wordcloud-noise {
+          background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+            radial-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+          background-size: 90px 90px, 140px 140px;
+          background-position: 0 0, 40px 60px;
+          opacity: 0.2;
+          mix-blend-mode: soft-light;
         }
 
-        @keyframes cloudDrift {
+        .wordcloud-selected {
+          text-shadow: var(--word-glow-1), var(--word-glow-2);
+        }
+
+        .word-float {
+          display: inline-block;
+          animation: wordFloat var(--dur) ease-in-out infinite;
+          transform: translate3d(0, 0, 0) rotate(var(--rot));
+          will-change: transform;
+        }
+
+        @keyframes wordFloat {
           0% {
-            transform: translate3d(0, 0, 0) scale(1);
+            transform: translate3d(0, 0, 0) rotate(var(--rot));
           }
           50% {
-            transform: translate3d(-6px, -8px, 0) scale(0.985);
+            transform: translate3d(var(--fx), var(--fy), 0) rotate(var(--rot));
           }
           100% {
-            transform: translate3d(0, 0, 0) scale(1);
+            transform: translate3d(0, 0, 0) rotate(var(--rot));
           }
         }
 
@@ -635,12 +588,12 @@ export default function WordCloud({
         }
 
         .snippet-mark {
-          color: rgba(150, 76, 34, 0.98);
+          color: var(--accent);
           font-weight: 700;
         }
 
         .snippet-source {
-          color: rgba(80, 68, 60, 0.7);
+          color: var(--muted);
           font-weight: 600;
           font-size: 12px;
           white-space: nowrap;
@@ -649,39 +602,44 @@ export default function WordCloud({
           text-overflow: ellipsis;
         }
 
-        .ripple-ring {
-          position: absolute;
-          inset: 0;
-          border-radius: 9999px;
-          border: 1px solid rgba(210, 176, 142, 0.45);
-          box-shadow: 0 0 40px rgba(210, 176, 142, 0.22);
-          opacity: 0;
-          transform: scale(0.4);
-          animation: rippleExpand 6s ease-out infinite;
+        .snippet-enter {
+          animation: snippet-enter 820ms cubic-bezier(0.16, 0.64, 0.3, 1) both;
         }
 
-        .ripple-ring-2 {
-          animation-delay: 1.6s;
+        .snippet-drift {
+          animation: snippet-float 24s ease-in-out infinite;
         }
 
-        .ripple-ring-3 {
-          animation-delay: 3.2s;
-        }
-
-        @keyframes rippleExpand {
+        @keyframes snippet-enter {
           0% {
-            opacity: 0.25;
-            transform: scale(0.35);
-          }
-          70% {
             opacity: 0;
-            transform: scale(1.05);
+            transform: translate(-50%, -50%) translate3d(0, 18px, 0) scale(0.96);
+            filter: blur(2px);
+          }
+          55% {
+            opacity: 0.8;
+            transform: translate(-50%, -50%) translate3d(0, -2px, 0) scale(1.01);
+            filter: blur(0.5px);
           }
           100% {
-            opacity: 0;
-            transform: scale(1.1);
+            opacity: 1;
+            transform: translate(-50%, -50%) translate3d(0, 0, 0) scale(1);
+            filter: blur(0);
           }
         }
+
+        @keyframes snippet-float {
+          0% {
+            transform: translate(-50%, -50%) translate3d(0, 0, 0);
+          }
+          50% {
+            transform: translate(-50%, -50%) translate3d(-10px, -12px, 0);
+          }
+          100% {
+            transform: translate(-50%, -50%) translate3d(0, 0, 0);
+          }
+        }
+
       `}</style>
     </div>
   );
