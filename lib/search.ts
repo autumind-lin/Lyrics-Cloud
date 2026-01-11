@@ -1,7 +1,7 @@
 import type { TrackRecord } from "./schema";
 
 export type SearchIndex = {
-  index: Document<TrackRecord>;
+  index: unknown;
   byId: Map<string, TrackRecord>;
   search: (query: string) => TrackRecord[];
 };
@@ -86,5 +86,5 @@ export const buildSearchIndex = (tracks: TrackRecord[]): SearchIndex => {
     return fallbackSearch(query);
   };
 
-  return { index: {} as Document<TrackRecord>, byId, search };
+  return { index: null, byId, search };
 };
