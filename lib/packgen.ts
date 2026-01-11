@@ -114,6 +114,12 @@ export const parseTextToPackage = (text: string, options: ParseOptions = {}): Pa
   let draft: Draft | null = null;
   let prevWasEmpty = true;
 
+  const appendLine = (value: string) => {
+    const current = draft as Draft | null;
+    if (!current) return;
+    current.lines.push(value);
+  };
+
   const flushDraft = () => {
     if (!draft) return;
     const hasLyrics = draft.lines.some((line) => line.trim().length > 0);
@@ -144,7 +150,7 @@ export const parseTextToPackage = (text: string, options: ParseOptions = {}): Pa
   for (const line0 of lines) {
     const line = line0.trim();
     if (!line) {
-      if (draft) draft.lines.push("");
+      appendLine("");
       prevWasEmpty = true;
       continue;
     }
@@ -188,7 +194,7 @@ export const parseTextToPackage = (text: string, options: ParseOptions = {}): Pa
       continue;
     }
 
-    draft.lines.push(line);
+    appendLine(line);
     prevWasEmpty = false;
   }
 
