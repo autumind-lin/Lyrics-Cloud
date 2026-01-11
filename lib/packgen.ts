@@ -128,7 +128,6 @@ export const parseTextToPackage = (text: string, options: ParseOptions = {}): Pa
       year,
       lyricists: draft.lyricists.length ? draft.lyricists : undefined,
       lyrics,
-      artist,
     });
     draft = null;
   };
